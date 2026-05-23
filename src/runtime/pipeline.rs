@@ -2,6 +2,7 @@
 //! physics targets, RNG, optional MIDI input. Runtime owns a Vec
 //! of these; coupling and multi-chain orchestration live in Runtime.
 
+use crate::chord::{ChordEngine, ChordTrigger};
 use crate::clock::ClockEmitter;
 use crate::events::EventDetector;
 use crate::input::MidiInputListener;
@@ -18,7 +19,7 @@ use arc_swap::ArcSwap;
 use crystallized_time::chain::SpinChain;
 use crystallized_time::chain_id::ChainId;
 use crystallized_time::config::{
-    apply_smoothing, PhysicsConfig, PhysicsTargets, SmoothingAlphas,
+    apply_smoothing, ChordConfig, PhysicsConfig, PhysicsTargets, SmoothingAlphas,
 };
 use rand::rngs::StdRng;
 use std::sync::{Arc, RwLock};
@@ -43,7 +44,11 @@ pub struct ChainPipeline {
 
     quantizer: Arc<RwLock<Option<ScaleQuantizer>>>,
 
+    chord_engine: Option<ChordEngine>,
+
     n_sites: usize,
+    emit_stride: u32,
+    ticks_per_period: u32,
 }
 
 impl ChainPipeline {
@@ -57,7 +62,9 @@ impl ChainPipeline {
         walls_cfg: crystallized_time::config::WallConfig,
         wall_midi_cfg: crystallized_time::config::WallMidiConfig,
         modulation_cfg: ModulationConfig,
+        chord_cfg: ChordConfig,
         seed: u64,
+        emit_stride: u32,
         targets: Arc<RwLock<PhysicsTargets>>,
         input_listener: Option<MidiInputListener>,
         perturbation_router: Option<PerturbationRouter>,
@@ -70,12 +77,16 @@ impl ChainPipeline {
         let physics_arc = Arc::new(ArcSwap::from_pointee(physics.clone()));
         let chain = SpinChain::new(Arc::clone(&physics_arc), &mut rng);
 
-        let detector = EventDetector::new(events_cfg.clone(), midi_cfg, &chain, voice_pitch_overrides);
+        let detector = EventDetector::new(events_cfg.clone(), midi_cfg, &chain, voice_pitch_overrides.as_ref().map(Arc::clone));
         let clock_emitter = ClockEmitter::new(clock_cfg, &chain, id, Arc::clone(&quantizer));
         let wall_detector = WallDetector::new(walls_cfg);
         let wall_voicer = WallVoiceAllocator::new(wall_midi_cfg, &physics, id, Arc::clone(&quantizer));
         let modulation_emitter =
             ModulationEmitter::new(modulation_cfg, events_cfg.output_sites);
+
+        let chord_engine = voice_pitch_overrides
+            .as_ref()
+            .and_then(|vp| ChordEngine::new(chord_cfg, Arc::clone(vp)));
 
         Self {
             id,
@@ -91,8 +102,15 @@ impl ChainPipeline {
             input_listener,
             perturbation_router,
             quantizer,
+            chord_engine,
             n_sites: physics.n_sites,
+            emit_stride,
+            ticks_per_period: physics.ticks_per_period,
         }
+    }
+
+    pub fn should_emit(&self, tick: u64) -> bool {
+        self.emit_stride <= 1 || tick.is_multiple_of(self.emit_stride as u64)
     }
 
     pub fn advance_smoothing(&self, alphas: &SmoothingAlphas) {
@@ -172,6 +190,34 @@ impl ChainPipeline {
 
     pub fn tick_modulation(&mut self, midi: &MidiSender) {
         self.modulation_emitter.tick(&self.chain, midi);
+    }
+
+    pub fn tick_chords(
+        &mut self,
+        clock_pulsed: bool,
+        walls_destroyed: usize,
+        is_period_boundary: bool,
+    ) {
+        let engine = match self.chord_engine.as_mut() {
+            Some(e) => e,
+            None => return,
+        };
+        let mag = self.chain.global_magnetization();
+        let tick = self.chain.tick;
+
+        if clock_pulsed {
+            engine.on_event(ChordTrigger::Clock, mag, tick);
+        }
+        for _ in 0..walls_destroyed {
+            engine.on_event(ChordTrigger::WallDeath, mag, tick);
+        }
+        if is_period_boundary {
+            engine.on_event(ChordTrigger::Period, mag, tick);
+        }
+    }
+
+    pub fn ticks_per_period(&self) -> u32 {
+        self.ticks_per_period
     }
 
     pub fn process_walls(

@@ -60,6 +60,7 @@ impl Runtime {
             config.chain_a.walls.clone(),
             config.chain_a.wall_midi.clone(),
             config.chain_a.modulation.clone(),
+            config.chain_a.chords.clone(),
             config.chain_a.seed,
             targets_a,
             input_listener,
@@ -82,6 +83,7 @@ impl Runtime {
                 b_cfg.walls.clone(),
                 b_cfg.wall_midi.clone(),
                 b_cfg.modulation.clone(),
+                b_cfg.chords.clone(),
                 b_cfg.seed,
                 targets_b,
                 None,
@@ -116,18 +118,13 @@ impl Runtime {
         }
     }
 
-    pub fn run_until(
-        &mut self,
-        total_ticks: u64,
-        running: &std::sync::atomic::AtomicBool,
-    ) {
+    pub fn run(&mut self, running: &std::sync::atomic::AtomicBool) {
         use std::sync::atomic::Ordering;
 
         let start = Instant::now();
-        for tick in 1..=total_ticks {
-            if !running.load(Ordering::Acquire) {
-                break;
-            }
+        let mut tick: u64 = 0;
+        while running.load(Ordering::Acquire) {
+            tick += 1;
 
             self.step(tick);
 
@@ -172,6 +169,10 @@ impl Runtime {
             p.tick_modulation(&self.midi_sender);
             let (created, _moved, destroyed) =
                 p.process_walls(&self.midi_sender, self.osc_sink.as_mut());
+
+            let tpp = p.ticks_per_period() as u64;
+            let is_period = tpp > 0 && tick % tpp == 0;
+            p.tick_chords(pulsed, destroyed, is_period);
 
             if let Some(tui) = self.tui_state.as_deref() {
                 let label = p.id.osc_prefix().trim_start_matches('/');

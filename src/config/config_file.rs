@@ -13,7 +13,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use super::{ChainConfig, ClockConfig, Config, CouplingConfig, CouplingShape, EventConfig, InputConfig, MidiConfig, ModulationConfig, OscConfig, PerturbationConfig, PerturbationKindConfig, PhysicsConfig, PhysicsTargets, QuantizeConfig, TempoConfig, WallConfig, WallMidiConfig};
+use super::{ChainConfig, ChordConfig, ChordSelect, ChordTriggerKind, ClockConfig, Config, CouplingConfig, CouplingShape, EventConfig, InputConfig, MidiConfig, ModulationConfig, OscConfig, PerturbationConfig, PerturbationKindConfig, PhysicsConfig, PhysicsTargets, QuantizeConfig, TempoConfig, WallConfig, WallMidiConfig};
 use crate::quantizer::Scale;
 
 // --- Public API ------------------------------------------------------------
@@ -148,6 +148,16 @@ struct ChainSection {
     clock: ClockSection,
     modulation: Option<ModulationSection>,
     quantize: Option<QuantizeSection>,
+    chords: Option<ChordsSection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChordsSection {
+    enabled: Option<bool>,
+    advance_on: Option<String>,   // "clock" | "wall_death" | "period"
+    advance_every: Option<u32>,
+    select: Option<String>,       // "sequential" | "magnetization" | "random"
+    sequence: Option<Vec<Vec<u8>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -627,6 +637,67 @@ fn build_events(
     })
 }
 
+fn build_chords(
+    section: &Option<ChordsSection>,
+    n_voices: usize,
+    chain_label: &str,
+) -> Result<ChordConfig, ConfigError> {
+    let Some(s) = section else { return Ok(ChordConfig::default()) };
+    let enabled = s.enabled.unwrap_or(false);
+    if !enabled { return Ok(ChordConfig::default()); }
+
+    let advance_on = match s.advance_on.as_deref().unwrap_or("wall_death") {
+        "clock"      => ChordTriggerKind::Clock,
+        "wall_death" => ChordTriggerKind::WallDeath,
+        "period"     => ChordTriggerKind::Period,
+        other => return Err(ConfigError::Validation(format!(
+            "{}.chords.advance_on: unknown '{}' (clock|wall_death|period)", chain_label, other
+        ))),
+    };
+
+    let select = match s.select.as_deref().unwrap_or("sequential") {
+        "sequential"    => ChordSelect::Sequential,
+        "magnetization" => ChordSelect::Magnetization,
+        "random"        => ChordSelect::Random,
+        other => return Err(ConfigError::Validation(format!(
+            "{}.chords.select: unknown '{}' (sequential|magnetization|random)", chain_label, other
+        ))),
+    };
+
+    let sequence = s.sequence.clone().unwrap_or_default();
+
+    if sequence.is_empty() {
+        return Err(ConfigError::Validation(format!(
+            "{}.chords.sequence must be non-empty when enabled = true",
+            chain_label
+        )));
+    }
+
+    for (i, chord) in sequence.iter().enumerate() {
+        if chord.len() != n_voices {
+            return Err(ConfigError::Validation(format!(
+                "{}.chords.sequence[{}]: expected {} pitches, got {}",
+                chain_label, i, n_voices, chord.len()
+            )));
+        }
+        for &p in chord {
+            if p > 127 {
+                return Err(ConfigError::Validation(format!(
+                    "{}.chords.sequence[{}]: pitch {} out of range (0..=127)", chain_label, i, p
+                )));
+            }
+        }
+    }
+
+    Ok(ChordConfig {
+        enabled: true,
+        advance_on,
+        advance_every: s.advance_every.unwrap_or(1).max(1),
+        select,
+        sequence,
+    })
+}
+
 fn build_chain(
     section: &ChainSection,
     label: &str,
@@ -642,6 +713,7 @@ fn build_chain(
     let events = build_events(&section.gates, label)?;
     let modulation = build_modulation(&section.modulation, label, midi.voice_channels.first().copied())?;
     let quantize = build_quantize(&section.quantize, label)?;
+    let chords = build_chords(&section.chords, midi.voice_channels.len(), label)?;
 
     for &site in &events.output_sites {
         if site >= physics.n_sites {
@@ -674,6 +746,7 @@ fn build_chain(
         wall_midi,
         modulation,
         quantize,
+        chords,
         seed,
     };
 

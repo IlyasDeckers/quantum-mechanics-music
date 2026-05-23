@@ -1,8 +1,7 @@
 //! Command-line interface — minimal after the TOML config refactor.
 //!
 //! Most former CLI fields now live in the config file. What's left is
-//! session-specific (which MIDI port, how long to run) or about the
-//! config file itself.
+//! session-specific (which MIDI port) or about the config file itself.
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -23,10 +22,6 @@ pub struct Cli {
     /// machine), so stays on the CLI rather than the config file.
     #[arg(short, long, default_value_t = 0)]
     pub port: usize,
-
-    /// Number of drive periods to run before shutting down. Default 20000.
-    #[arg(long)]
-    pub periods: Option<u64>,
 
     /// Print available MIDI input ports and exit.
     #[arg(long)]

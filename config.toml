@@ -27,6 +27,18 @@ w = 2.0
 n_sites = 8
 ticks_per_period = 25
 
+[chain_a.chords]
+enabled = true
+advance_on = "period" # "clock" | "wall_death" | "period"
+advance_every = 2
+select = "magnetization" # "sequential" | "magnetization" | "random"
+sequence = [
+    [48, 52, 55, 59],                # Cmaj7
+    [45, 48, 52, 55],                # Am7
+    [43, 47, 50, 53],                # Fmaj7
+    [47, 50, 53, 57],                # G7
+]
+
 [chain_b]
 seed = 83
 

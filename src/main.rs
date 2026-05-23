@@ -1,3 +1,4 @@
+mod chord;
 mod cli;
 mod clock;
 mod events;
@@ -130,16 +131,8 @@ fn main() {
         input_listener,
         perturbation_router,
         tui_state.clone(),
-        if cli.tui {
-            Some(Arc::clone(&voice_pitches_a))
-        } else {
-            None
-        },
-        if cli.tui {
-            voice_pitches_b.as_ref().map(Arc::clone)
-        } else {
-            None
-        },
+        Some(Arc::clone(&voice_pitches_a)),
+        voice_pitches_b.as_ref().map(Arc::clone),
         Arc::clone(&quantizer_a),
         quantizer_b.as_ref().map(Arc::clone),
     );
@@ -149,14 +142,9 @@ fn main() {
         let _ = tui_handle;
     }
 
-    let total_ticks =
-        cli.periods.unwrap_or(20_000) * config.chain_a.physics.ticks_per_period as u64;
-    println!(
-        "Running for {} drive periods...",
-        total_ticks / config.chain_a.physics.ticks_per_period as u64
-    );
+    println!("Running until interrupted (Ctrl-C to stop)...");
 
-    runtime.run_until(total_ticks, &running);
+    runtime.run(&running);
 
     println!("\nShutting down cleanly...");
     runtime.shutdown();

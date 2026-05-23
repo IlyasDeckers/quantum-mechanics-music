@@ -166,6 +166,18 @@ kind = "rotate"                      # "flip" | "rotate" | "field_spike"
 axis = "x"
 magnitude = 0.3
 velocity_scale = 1.0
+
+[chain_a.chords]                     # optional chord progression
+enabled = true
+advance_on = "wall_death"            # "clock" | "wall_death" | "period"
+advance_every = 2
+select = "magnetization"             # "sequential" | "magnetization" | "random"
+sequence = [
+    [48, 52, 55, 59],                # Cmaj7
+    [45, 48, 52, 55],                # Am7
+    [43, 47, 50, 53],                # Fmaj7
+    [47, 50, 53, 57],                # G7
+]
 ```
 
 Channel numbers in the file are 1-based (`1..=16`); MIDI pitches are `0..=127`.
@@ -216,6 +228,41 @@ Each wall sounds as a held note on one of the wall channels, with note-on at bir
 - **Repitch on move** (`repitch_on_move = true`). Wall motion produces new note-on/note-off pairs as the position-derived pitch crosses semitone boundaries. Useful for hardware MIDI-to-CV interfaces where CC-to-modulation routing is inconvenient.
 
 When the number of active walls exceeds the available channels, the oldest active wall yields its channel to the new one.
+
+---
+
+## Chord changes
+
+Each chain can carry its own chord progression that rewrites gate voice pitches as the simulation runs. The progression is a list of voicings, advanced by a chosen physics event (clock pulse, wall destruction, or drive-period boundary). The next chord is selected sequentially, by chain magnetization, or by a tick-seeded RNG — so the same seed reproduces the same progression.
+
+Each voicing must list one pitch per gate voice. When the progression advances, the new voicing is written into the same `voice_pitches` buffer the TUI editor edits, so the next gate event from that voice plays the new note immediately. Live editing in the TUI and chord changes share the same buffer; whichever wrote last wins.
+
+```toml
+[chain_a.chords]
+enabled = true
+advance_on = "wall_death"            # "clock" | "wall_death" | "period"
+advance_every = 2                    # advance every Nth matching event
+select = "magnetization"             # "sequential" | "magnetization" | "random"
+
+# One pitch per gate voice. With four voices on chain_a, every voicing is length-4.
+sequence = [
+    [48, 52, 55, 59],                # Cmaj7
+    [45, 48, 52, 55],                # Am7
+    [43, 47, 50, 53],                # Fmaj7
+    [47, 50, 53, 57],                # G7
+    [40, 44, 47, 51],                # Em7
+    [38, 41, 45, 48],                # Dm7
+]
+```
+
+- `advance_on = "clock"` advances on every chain clock pulse — a beat-locked progression in the locked phase.
+- `advance_on = "wall_death"` advances when a domain wall annihilates — sparse, event-driven changes that follow the physics.
+- `advance_on = "period"` advances every `ticks_per_period` ticks — a strict metronomic progression independent of chain state.
+- `select = "sequential"` walks the sequence round-robin.
+- `select = "magnetization"` picks `floor(((m + 1) / 2) * n)` — chord index follows the chain's collective bias.
+- `select = "random"` samples a tick-seeded LCG, so a given run reproduces the same chord order.
+
+Validation: `sequence` must be non-empty when enabled, every voicing must match the chain's gate voice count, and pitches must be `0..=127`. The two chains' progressions run independently.
 
 ---
 
