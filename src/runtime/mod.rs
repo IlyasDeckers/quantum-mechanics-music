@@ -61,6 +61,7 @@ impl Runtime {
             config.chain_a.wall_midi.clone(),
             config.chain_a.modulation.clone(),
             config.chain_a.seed,
+            config.chain_a.emit_stride,
             targets_a,
             input_listener,
             perturbation_router,
@@ -83,6 +84,7 @@ impl Runtime {
                 b_cfg.wall_midi.clone(),
                 b_cfg.modulation.clone(),
                 b_cfg.seed,
+                b_cfg.emit_stride,
                 targets_b,
                 None,
                 None,
@@ -166,7 +168,13 @@ impl Runtime {
         }
 
         // Phase 4: emit. Site events, clock, modulation CC, walls. Per-pipeline.
+        // Pipelines with emit_stride > 1 skip emission on most ticks, so we
+        // can keep rich physics resolution and a sparse output grid at the
+        // same time.
         for p in &mut self.pipelines {
+            if !p.should_emit(tick) {
+                continue;
+            }
             let gate_count = p.emit_site_events(&self.midi_sender, self.osc_sink.as_mut());
             let pulsed = p.tick_clock(&self.midi_sender, self.osc_sink.as_mut());
             p.tick_modulation(&self.midi_sender);

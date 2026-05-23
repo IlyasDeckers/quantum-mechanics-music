@@ -44,6 +44,7 @@ pub struct ChainPipeline {
     quantizer: Arc<RwLock<Option<ScaleQuantizer>>>,
 
     n_sites: usize,
+    emit_stride: u32,
 }
 
 impl ChainPipeline {
@@ -58,6 +59,7 @@ impl ChainPipeline {
         wall_midi_cfg: crystallized_time::config::WallMidiConfig,
         modulation_cfg: ModulationConfig,
         seed: u64,
+        emit_stride: u32,
         targets: Arc<RwLock<PhysicsTargets>>,
         input_listener: Option<MidiInputListener>,
         perturbation_router: Option<PerturbationRouter>,
@@ -92,7 +94,12 @@ impl ChainPipeline {
             perturbation_router,
             quantizer,
             n_sites: physics.n_sites,
+            emit_stride,
         }
+    }
+
+    pub fn should_emit(&self, tick: u64) -> bool {
+        self.emit_stride <= 1 || tick.is_multiple_of(self.emit_stride as u64)
     }
 
     pub fn advance_smoothing(&self, alphas: &SmoothingAlphas) {

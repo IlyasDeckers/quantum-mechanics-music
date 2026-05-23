@@ -142,6 +142,7 @@ struct PhysicsSection {
 #[derive(Debug, Deserialize)]
 struct ChainSection {
     seed: Option<u64>,
+    emit_stride: Option<u32>,
     physics: Option<PhysicsSection>,
     gates: GatesSection,
     walls: Option<WallsSection>,
@@ -635,6 +636,16 @@ fn build_chain(
     let physics_section = section.physics.as_ref().or(shared_physics);
     let physics = build_physics(physics_section.cloned());
     let seed = section.seed.unwrap_or(47);
+    let emit_stride = match section.emit_stride {
+        Some(0) => {
+            return Err(ConfigError::Validation(format!(
+                "{}.emit_stride must be >= 1 (got 0)",
+                label
+            )));
+        }
+        Some(n) => n,
+        None => 1,
+    };
 
     let (midi, gate_claims) = build_midi(&section.gates, label)?;
     let (walls, wall_midi, wall_claims) = build_walls(section.walls.as_ref(), label)?;
@@ -675,6 +686,7 @@ fn build_chain(
         modulation,
         quantize,
         seed,
+        emit_stride,
     };
 
     Ok((chain_cfg, claims))
