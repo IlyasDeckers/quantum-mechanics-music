@@ -18,6 +18,13 @@ enable_state = true
 # Physics. applies to every chain that doesn't define its own [chain_x.physics].
 [chain_a]
 seed = 47
+# emit_stride: emit gate/pulse/wall/modulation events every Nth physics tick.
+# Default 1 (emit every tick). Raise to thin the output grid while keeping
+# rich inter-kick physics — e.g. emit_stride = 12 with ticks_per_period = 25
+# samples the chain twice per drive period (downbeats only) without changing
+# the physics resolution. Compare against lowering ticks_per_period, which
+# stiffens the dynamics as well as thinning the output.
+# emit_stride = 12
 
 [chain_a.physics]
 kt = 0.01
@@ -26,6 +33,13 @@ j = 1.2
 w = 2.0
 n_sites = 8
 ticks_per_period = 25
+# dt: integration step size in sim units. Default 0.04. The product
+# dt * ticks_per_period sets how much sim time elapses per drive period;
+# defaults give 1.0 (the natural unit). Hold the product near 1.0 while
+# varying dt and ticks_per_period to keep inter-kick evolution consistent.
+# Larger dt = coarser Euler steps (eventually unstable); smaller dt =
+# smoother evolution but slower wall-clock per tick at the same BPM.
+# dt = 0.9
 
 [chain_a.chords]
 enabled = true
